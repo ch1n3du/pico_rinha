@@ -275,10 +275,36 @@ mod tests {
     }
 
     #[test]
-    fn can_compile_if_else_expressions() {
+    fn can_compile_if_expressions() {
         let expr: Expr = Expr::If {
             condition: Box::new(Expr::Bool {
                 value: true,
+                location: Location::default(),
+            }),
+            then: Box::new(Expr::Int {
+                value: 0,
+                location: Location::default(),
+            }),
+            otherwise: None,
+            next: None,
+            location: Location::default(),
+        };
+
+        let mut compiler = Compiler::new();
+        let chunk = compiler.compile(Program {
+            name: "Testing If/else".to_string(),
+            expression: expr,
+        });
+
+        let result = VM::new().interpret(&chunk);
+        assert_eq!(result, Value::Int(0));
+    }
+
+    #[test]
+    fn can_compile_if_else_expressions() {
+        let expr: Expr = Expr::If {
+            condition: Box::new(Expr::Bool {
+                value: false,
                 location: Location::default(),
             }),
             then: Box::new(Expr::Int {
@@ -300,6 +326,38 @@ mod tests {
         });
 
         let result = VM::new().interpret(&chunk);
-        assert_eq!(result, Value::Int(0));
+        assert_eq!(result, Value::Int(1));
+    }
+
+    #[test]
+    fn can_compile_if_else_expressions_with_continuations() {
+        let expr: Expr = Expr::If {
+            condition: Box::new(Expr::Bool {
+                value: false,
+                location: Location::default(),
+            }),
+            then: Box::new(Expr::Int {
+                value: 0,
+                location: Location::default(),
+            }),
+            otherwise: Some(Box::new(Expr::Int {
+                value: 1,
+                location: Location::default(),
+            })),
+            next: Some(Box::new(Expr::Int {
+                value: 42,
+                location: Location::default(),
+            })),
+            location: Location::default(),
+        };
+
+        let mut compiler = Compiler::new();
+        let chunk = compiler.compile(Program {
+            name: "Testing If/else".to_string(),
+            expression: expr,
+        });
+
+        let result = VM::new().interpret(&chunk);
+        assert_eq!(result, Value::Int(42));
     }
 }
