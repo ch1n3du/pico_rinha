@@ -13,6 +13,10 @@ pub enum Expr {
         value: i64,
         location: Location,
     },
+    Bool {
+        value: bool,
+        location: Location,
+    },
     Var(Identifier),
     Unary {
         op: UnaryOp,
@@ -34,7 +38,7 @@ pub enum Expr {
     If {
         condition: Box<Expr>,
         then: Box<Expr>,
-        otherwise: Box<Expr>,
+        otherwise: Option<Box<Expr>>,
         next: Option<Box<Expr>>,
         location: Location,
     },

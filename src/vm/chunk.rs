@@ -40,15 +40,68 @@ impl Chunk {
             );
         }
         self.instructions.push(op as u8);
+        let instruction_index: usize = self.instructions.len() - 1;
         self.instructions.extend_from_slice(arguments);
 
-        self.instructions.len() - 1
+        instruction_index
+    }
+
+    pub fn patch_address(&mut self, address: u32, index: usize) {
+        println!("About to patch {index}");
+        for (i, byte) in address.to_be_bytes().into_iter().enumerate() {
+            println!(
+                "Index: {}, Instruction Lenght: {}",
+                index + i,
+                self.instructions.len()
+            );
+            self.instructions[index + i] = byte;
+        }
     }
 
     /// Adds a constant and returns it's index
     pub fn add_constant(&mut self, value: Value) -> usize {
         self.constants.push(value);
         self.constants.len() - 1
+    }
+}
+
+impl std::fmt::Display for Chunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let separator = "=".repeat(50);
+        writeln!(f, "{}", separator)?;
+        writeln!(f, "INSTRUCTIONS:")?;
+        writeln!(f, "{}", separator)?;
+        let mut instruction_pointer: usize = 0;
+        let mut instruction_counter: usize = 0;
+        while instruction_pointer < self.instructions.len() {
+            let op_code: OpCode = OpCode::from_u8(self.instructions[instruction_pointer]).unwrap();
+
+            let argument = match op_code.arity() {
+                0 => "".to_string(),
+                1 => format!("{}", self.instructions[instruction_pointer + 1]),
+                4 => {
+                    let address_bytes: [u8; 4] = self.instructions
+                        [instruction_pointer + 1..instruction_pointer + 5]
+                        .try_into()
+                        .unwrap();
+                    let address: u32 = u32::from_be_bytes(address_bytes);
+                    format!("{address}")
+                }
+                _ => unreachable!(),
+            };
+
+            writeln!(f, "{instruction_counter:02} | {op_code:?} {argument}").unwrap();
+            instruction_pointer += 1 + op_code.arity();
+            instruction_counter += 1;
+        }
+
+        writeln!(f, "{}", separator)?;
+        writeln!(f, "CONSTANTS:")?;
+        writeln!(f, "{}", separator)?;
+        for (index, constant) in self.constants.iter().enumerate() {
+            writeln!(f, "{index:02} | {constant:?}")?;
+        }
+        writeln!(f, "{}", separator)
     }
 }
 
@@ -88,6 +141,12 @@ pub enum OpCode {
     // Local Manipulation OpCodes
     GetLocal,
     SetLocal,
+    Pop,
+
+    // Jumps
+    Jump,
+    JumpIfTrue,
+    JumpIfFalse,
 }
 
 impl OpCode {
@@ -97,6 +156,9 @@ impl OpCode {
             OpCode::GetConstant => 1,
             OpCode::GetLocal => 1,
             OpCode::SetLocal => 1,
+            OpCode::Jump => 4,
+            OpCode::JumpIfTrue => 4,
+            OpCode::JumpIfFalse => 4,
             _ => 0,
         }
     }
@@ -135,7 +197,12 @@ impl OpCode {
             // Local Manipulation OpCodes
             b if b == GetLocal as u8 => GetLocal,
             b if b == SetLocal as u8 => SetLocal,
+            b if b == Pop as u8 => Pop,
 
+            // Jumps
+            b if b == Jump as u8 => Jump,
+            b if b == JumpIfTrue as u8 => JumpIfTrue,
+            b if b == JumpIfFalse as u8 => JumpIfFalse,
             _ => return None,
         };
         Some(op_code)

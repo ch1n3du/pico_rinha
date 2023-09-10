@@ -23,6 +23,7 @@ impl Walker {
     pub fn interpret_expr(&mut self, expr: &Expr) -> WalkerResult<Value> {
         match expr {
             Expr::Int { value, .. } => Ok(Value::Int(*value)),
+            Expr::Bool { value, .. } => Ok(Value::Bool(*value)),
             Expr::Unary { op, rhs, location } => {
                 let rhs: Value = self.interpret_expr(&rhs)?;
 
@@ -86,7 +87,11 @@ impl Walker {
                 let result: Value = if condition {
                     self.interpret_expr(then)?
                 } else {
-                    self.interpret_expr(&otherwise)?
+                    if let Some(else_branch) = otherwise {
+                        self.interpret_expr(&else_branch)?
+                    } else {
+                        Value::Unit
+                    }
                 };
 
                 if let Some(next_expression) = next {

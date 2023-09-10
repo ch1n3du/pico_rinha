@@ -31,10 +31,13 @@ impl VM {
                 panic!("VM Error: Invalid instruction '{raw_instruction}'.")
             };
 
+            // TODO Remove
+            println!("{}", "-".repeat(30));
             println!(
-                "(IP = {}) Interpreting {op_code:?}",
+                "(IP = {}) Interpreting {op_code:?}\nVM: {self:#?}",
                 self.instruction_pointer
             );
+            println!("{}", "-".repeat(30));
             // Execute the instruction
             match op_code {
                 OpCode::Return => return self.value_stack.pop().unwrap(),
@@ -55,19 +58,30 @@ impl VM {
                 OpCode::PushTrue => self.push(Value::Bool(true)),
                 OpCode::PushFalse => self.push(Value::Bool(false)),
                 OpCode::PushUnit => self.push(Value::Unit),
-                OpCode::GetLocal => self.get_local(chunk),
-                OpCode::SetLocal => self.set_local(chunk),
+                OpCode::GetLocal => self.get_local_op(chunk),
+                OpCode::SetLocal => self.set_local_op(chunk),
+                OpCode::Pop => {
+                    self.pop_value();
+                }
+                OpCode::Jump => self.jump_op(chunk),
+                OpCode::JumpIfTrue => self.jump_if_true_op(chunk),
+                OpCode::JumpIfFalse => self.jump_if_false_op(chunk),
             }
 
-            self.instruction_pointer += 1 + op_code.arity();
+            match op_code {
+                OpCode::Jump | OpCode::JumpIfTrue | OpCode::JumpIfFalse => (),
+                _ => self.instruction_pointer += 1 + op_code.arity(),
+            }
         }
     }
 
     fn get_constant_op(&mut self, chunk: &Chunk) {
+        println!("VM before GetConstant: {self:#?}");
         let constant_index: usize =
             chunk.get_instruction(self.instruction_pointer + 1).unwrap() as usize;
         let constant: Value = chunk.get_constant(constant_index).unwrap();
         self.value_stack.push(constant);
+        println!("VM after GetConstant: {self:#?}");
     }
 
     fn print_op(&mut self) {
@@ -208,7 +222,7 @@ impl VM {
         self.push(result);
     }
 
-    fn get_local(&mut self, chunk: &Chunk) {
+    fn get_local_op(&mut self, chunk: &Chunk) {
         let local_index: usize =
             chunk.get_instruction(self.instruction_pointer + 1).unwrap() as usize;
         if local_index > self.value_stack.len() - 1 {
@@ -217,13 +231,46 @@ impl VM {
         self.value_stack.push(self.value_stack[local_index].clone());
     }
 
-    fn set_local(&mut self, chunk: &Chunk) {
+    fn set_local_op(&mut self, chunk: &Chunk) {
         let local_index: usize =
             chunk.get_instruction(self.instruction_pointer + 1).unwrap() as usize;
         if local_index > self.value_stack.len() - 1 {
             panic!("VM Error: Attempted setting a local that doesn't exist")
         }
         self.value_stack[local_index] = self.value_stack.pop().unwrap();
+    }
+
+    fn jump_op(&mut self, chunk: &Chunk) {
+        let instruction_index_bytes: [u8; 4] = chunk.instructions
+            [self.instruction_pointer + 1..self.instruction_pointer + 5]
+            .try_into()
+            .unwrap();
+        let instruction_index: usize = u32::from_be_bytes(instruction_index_bytes) as usize;
+        self.instruction_pointer = instruction_index;
+    }
+
+    fn jump_if_true_op(&mut self, chunk: &Chunk) {
+        let Value::Bool(bool) = self.pop_value() else {
+            panic!("VM Error: 'JumpIfTrue' expects a boolean to be at the top of the stack.")
+        };
+
+        if bool == true {
+            self.jump_op(chunk)
+        } else {
+            self.instruction_pointer += 1 + OpCode::JumpIfTrue.arity();
+        }
+    }
+
+    fn jump_if_false_op(&mut self, chunk: &Chunk) {
+        let Value::Bool(bool) = self.pop_value() else {
+            panic!("VM Error: 'JumpIfTrue' expects a boolean to be at the top of the stack.")
+        };
+
+        if bool == false {
+            self.jump_op(chunk)
+        } else {
+            self.instruction_pointer += 1 + OpCode::JumpIfFalse.arity();
+        }
     }
 
     // Utility Methods

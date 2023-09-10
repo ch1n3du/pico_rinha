@@ -1,4 +1,7 @@
-use std::{ffi::c_char, slice::ChunksExact};
+use std::{
+    ffi::c_char,
+    slice::{ChunksExact, ChunksMut},
+};
 
 use crate::ast::{BinaryOp, Expr, Identifier, Program, UnaryOp};
 
@@ -25,13 +28,18 @@ impl Compiler {
     pub fn compile(&mut self, program: Program) -> Chunk {
         let mut chunk: Chunk = Chunk::new();
         self.compile_expr(&program.expression, &mut chunk);
+        chunk.write_opcode(OpCode::Return);
         chunk
     }
 
     fn compile_expr(&mut self, expr: &Expr, chunk: &mut Chunk) {
         match expr {
-            Expr::Int { value, location } => {
+            Expr::Int { value, location: _ } => {
                 let index = chunk.add_constant(Value::Int(*value)) as u8;
+                chunk.write_opcode_with_args(OpCode::GetConstant, &[index]);
+            }
+            Expr::Bool { value, location } => {
+                let index = chunk.add_constant(Value::Bool(*value)) as u8;
                 chunk.write_opcode_with_args(OpCode::GetConstant, &[index]);
             }
             Expr::Unary {
@@ -63,7 +71,7 @@ impl Compiler {
                 otherwise,
                 next,
                 location: _,
-            } => todo!(),
+            } => self.compile_if_expr(chunk, condition, then, otherwise, next),
             Expr::Function {
                 parameters,
                 value,
@@ -158,6 +166,51 @@ impl Compiler {
         }
     }
 
+    fn compile_if_expr(
+        &mut self,
+        chunk: &mut Chunk,
+        condition: &Expr,
+        then: &Expr,
+        otherwise: &Option<Box<Expr>>,
+        next: &Option<Box<Expr>>,
+    ) {
+        // Compile the condition leaving it at the top of the stack.
+        self.compile_expr(condition, chunk);
+
+        // Write a dummy jump instruction for the else block
+        let jump_to_else_block_address_index: usize =
+            chunk.write_opcode_with_args(OpCode::JumpIfFalse, 69_u32.to_be_bytes().as_slice()) + 1;
+
+        // Compile the truthy block
+        self.compile_expr(then, chunk);
+
+        // Write a dummy jump instruction for the else block
+        let jump_to_after_else_block_address_index: usize =
+            chunk.write_opcode_with_args(OpCode::Jump, 69_u32.to_be_bytes().as_slice()) + 1;
+
+        // Patch the jump_to_else_block address
+        chunk.patch_address(
+            chunk.instructions.len() as u32,
+            jump_to_else_block_address_index,
+        );
+
+        if let Some(else_branh) = otherwise {
+            self.compile_expr(&else_branh, chunk);
+        }
+
+        // Patch the jump_to_after_else_block address
+        chunk.patch_address(
+            chunk.instructions.len() as u32,
+            jump_to_after_else_block_address_index,
+        );
+
+        if let Some(next_expression) = next {
+            // If there's a continuation pop the result of the if/else block off of the stack.
+            chunk.write_opcode(OpCode::Pop);
+            self.compile_expr(&next_expression, chunk)
+        }
+    }
+
     // Utility Methods
 
     fn push_scope(&mut self) {
@@ -183,8 +236,11 @@ impl Compiler {
 #[cfg(test)]
 mod tests {
     use crate::{
-        ast::{BinaryOp, Expr, Location},
-        vm::chunk::{Chunk, OpCode, Value},
+        ast::{BinaryOp, Expr, Location, Program},
+        vm::{
+            chunk::{Chunk, OpCode, Value},
+            VM,
+        },
     };
 
     use super::Compiler;
@@ -216,5 +272,34 @@ mod tests {
         compiler.compile_expr(&expr, &mut test_chunk);
 
         assert_eq!(expected_chunk, test_chunk)
+    }
+
+    #[test]
+    fn can_compile_if_else_expressions() {
+        let expr: Expr = Expr::If {
+            condition: Box::new(Expr::Bool {
+                value: true,
+                location: Location::default(),
+            }),
+            then: Box::new(Expr::Int {
+                value: 0,
+                location: Location::default(),
+            }),
+            otherwise: Some(Box::new(Expr::Int {
+                value: 1,
+                location: Location::default(),
+            })),
+            next: None,
+            location: Location::default(),
+        };
+
+        let mut compiler = Compiler::new();
+        let chunk = compiler.compile(Program {
+            name: "Testing If/else".to_string(),
+            expression: expr,
+        });
+
+        let result = VM::new().interpret(&chunk);
+        assert_eq!(result, Value::Int(0));
     }
 }
