@@ -69,6 +69,16 @@ pub struct Location {
     filename: String,
 }
 
+impl Default for Location {
+    fn default() -> Self {
+        Location {
+            start: 0,
+            end: 0,
+            filename: "this is just for testing".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub enum BinaryOp {
     // Comparison

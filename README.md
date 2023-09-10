@@ -1,6 +1,6 @@
 # pico-rinha
 
-Interpreters for the [Rinha]() programming language.
+smol interpreters for the [Rinha]() programming language.
 
 ## structure of the repo
 

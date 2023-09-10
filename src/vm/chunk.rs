@@ -1,32 +1,37 @@
 use core::panic;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Chunk {
-    pub code: Vec<u8>,
+    pub instructions: Vec<u8>,
     pub constants: Vec<Value>,
 }
 
 impl Chunk {
     pub fn new() -> Self {
         Chunk {
-            code: Vec::new(),
+            instructions: Vec::new(),
             constants: Vec::new(),
         }
     }
 
+    /// Returns a byte from the chunk
     pub fn get_instruction(&self, index: usize) -> Option<u8> {
-        self.code.get(index).map(|byte| *byte)
+        self.instructions.get(index).map(|byte| *byte)
     }
 
+    /// Get a Value stored in this chunk.
     pub fn get_constant(&self, index: usize) -> Option<Value> {
         self.constants.get(index).map(|value| value.clone())
     }
 
-    pub fn write_opcode(&mut self, op: OpCode) {
+    /// Writes an OpCode to this chunk's instructions
+    pub fn write_opcode(&mut self, op: OpCode) -> usize {
         self.write_opcode_with_args(op, &[])
     }
 
-    pub fn write_opcode_with_args(&mut self, op: OpCode, arguments: &[u8]) {
+    // TODO If no other multi-argument OpCodes make arguments a u8
+    /// Writes an OpCode and it's arguments to this chunk's instructions
+    pub fn write_opcode_with_args(&mut self, op: OpCode, arguments: &[u8]) -> usize {
         if arguments.len() != op.arity() {
             panic!(
                 "Expected {} operands for the {:?} OpCode",
@@ -34,8 +39,10 @@ impl Chunk {
                 op
             );
         }
-        self.code.push(op as u8);
-        self.code.extend_from_slice(arguments)
+        self.instructions.push(op as u8);
+        self.instructions.extend_from_slice(arguments);
+
+        self.instructions.len() - 1
     }
 
     /// Adds a constant and returns it's index
@@ -52,6 +59,8 @@ pub enum OpCode {
 
     /// Reads the next byte as the index of the constant
     GetConstant,
+    Print,
+
     // Unary Operands
     Negate,
     LogicalNot,
@@ -75,6 +84,10 @@ pub enum OpCode {
     PushUnit,
     PushTrue,
     PushFalse,
+
+    // Local Manipulation OpCodes
+    GetLocal,
+    SetLocal,
 }
 
 impl OpCode {
@@ -82,8 +95,8 @@ impl OpCode {
     pub fn arity(&self) -> usize {
         match self {
             OpCode::GetConstant => 1,
-            // OpCode::Pop
-            // OpCode::PopN
+            OpCode::GetLocal => 1,
+            OpCode::SetLocal => 1,
             _ => 0,
         }
     }
@@ -93,6 +106,7 @@ impl OpCode {
         let op_code: OpCode = match byte {
             b if b == Return as u8 => Return,
             b if b == GetConstant as u8 => GetConstant,
+            b if b == Print as u8 => Print,
 
             // Unary Operands
             b if b == Negate as u8 => Negate,
@@ -118,6 +132,10 @@ impl OpCode {
             b if b == PushTrue as u8 => PushTrue,
             b if b == PushFalse as u8 => PushFalse,
 
+            // Local Manipulation OpCodes
+            b if b == GetLocal as u8 => GetLocal,
+            b if b == SetLocal as u8 => SetLocal,
+
             _ => return None,
         };
         Some(op_code)
@@ -136,11 +154,22 @@ pub enum Value {
 impl Value {
     pub fn type_of(&self) -> String {
         match self {
-            Value::Bool(_) => "Bool".to_string(),
             Value::Int(_) => "Int".to_string(),
+            Value::Bool(_) => "Bool".to_string(),
             Value::String(_) => "String".to_string(),
             // Value::Fn { .. } => "<{{Function}}>".to_string(),
             Value::Unit => "Unit".to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Int(i) => write!(f, "{i}"),
+            Value::Bool(b) => write!(f, "{b}"),
+            Value::String(s) => write!(f, "{s}"),
+            Value::Unit => write!(f, "()"),
         }
     }
 }
