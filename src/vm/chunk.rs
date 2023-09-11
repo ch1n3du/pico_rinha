@@ -1,6 +1,6 @@
 use core::panic;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Chunk {
     pub instructions: Vec<u8>,
     pub constants: Vec<Value>,
@@ -34,9 +34,11 @@ impl Chunk {
     pub fn write_opcode_with_args(&mut self, op: OpCode, arguments: &[u8]) -> usize {
         if arguments.len() != op.arity() {
             panic!(
-                "Expected {} operands for the {:?} OpCode",
+                "Expected {} operands for the {:?} OpCode, but got {}, {:?}",
+                op.arity(),
+                op,
                 arguments.len(),
-                op
+                arguments
             );
         }
         self.instructions.push(op as u8);
@@ -47,13 +49,7 @@ impl Chunk {
     }
 
     pub fn patch_address(&mut self, address: u32, index: usize) {
-        println!("About to patch {index}");
         for (i, byte) in address.to_be_bytes().into_iter().enumerate() {
-            println!(
-                "Index: {}, Instruction Lenght: {}",
-                index + i,
-                self.instructions.len()
-            );
             self.instructions[index + i] = byte;
         }
     }
@@ -142,11 +138,14 @@ pub enum OpCode {
     GetLocal,
     SetLocal,
     Pop,
+    PopN,
 
     // Jumps
     Jump,
     JumpIfTrue,
     JumpIfFalse,
+
+    Call,
 }
 
 impl OpCode {
@@ -156,6 +155,7 @@ impl OpCode {
             OpCode::GetConstant => 1,
             OpCode::GetLocal => 1,
             OpCode::SetLocal => 1,
+            OpCode::PopN => 1,
             OpCode::Jump => 4,
             OpCode::JumpIfTrue => 4,
             OpCode::JumpIfFalse => 4,
@@ -198,23 +198,28 @@ impl OpCode {
             b if b == GetLocal as u8 => GetLocal,
             b if b == SetLocal as u8 => SetLocal,
             b if b == Pop as u8 => Pop,
+            b if b == PopN as u8 => PopN,
 
             // Jumps
             b if b == Jump as u8 => Jump,
             b if b == JumpIfTrue as u8 => JumpIfTrue,
             b if b == JumpIfFalse as u8 => JumpIfFalse,
+
+            b if b == Call as u8 => Call,
+
             _ => return None,
         };
         Some(op_code)
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Value {
     Int(i64),
     // TODO Find a way to have more compact strings
     String(String),
     Bool(bool),
+    Fn(Box<Function>),
     Unit,
 }
 
@@ -224,7 +229,7 @@ impl Value {
             Value::Int(_) => "Int".to_string(),
             Value::Bool(_) => "Bool".to_string(),
             Value::String(_) => "String".to_string(),
-            // Value::Fn { .. } => "<{{Function}}>".to_string(),
+            Value::Fn(_) => "Function".to_string(),
             Value::Unit => "Unit".to_string(),
         }
     }
@@ -236,7 +241,42 @@ impl std::fmt::Display for Value {
             Value::Int(i) => write!(f, "{i}"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::String(s) => write!(f, "{s}"),
+            Value::Fn(func) => write!(f, "{func}"),
             Value::Unit => write!(f, "()"),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Function {
+    pub name: String,
+    pub arity: u8,
+    pub chunk: Chunk,
+    pub is_script: bool,
+}
+
+impl Function {
+    pub fn new(name: String, arity: u8) -> Function {
+        Function {
+            name,
+            arity,
+            chunk: Chunk::new(),
+            is_script: false,
+        }
+    }
+
+    pub fn new_main() -> Function {
+        Function {
+            name: "~~main~~".to_string(),
+            arity: 0,
+            chunk: Chunk::new(),
+            is_script: true,
+        }
+    }
+}
+
+impl std::fmt::Display for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "<fn {}>", self.name)
     }
 }

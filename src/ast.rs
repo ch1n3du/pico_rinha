@@ -66,6 +66,15 @@ pub struct Identifier {
     pub location: Location,
 }
 
+impl Identifier {
+    pub fn new_dummy(text: &str) -> Self {
+        Identifier {
+            text: text.to_string(),
+            location: Location::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Location {
     start: usize,
