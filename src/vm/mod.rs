@@ -8,14 +8,20 @@ pub use compiler::Compiler;
 
 #[derive(Debug)]
 pub struct VM {
+    /// Holds values for operations and stores local variables.
     value_stack: Vec<Value>,
-    frames: Vec<CallFrame>,
+    /// Stores the function call stack.
+    call_stack: Vec<CallFrame>,
 }
 
+/// Represents a function call.
 #[derive(Debug)]
 pub struct CallFrame {
+    /// Function being called.
     function: Function,
+    /// Points to the current instruction being interpreted.
     instruction_pointer: usize,
+    /// Stores the start of the region in the stack this function call is allowed accesss
     slot_start: usize,
 }
 
@@ -23,7 +29,7 @@ impl VM {
     pub fn new(main_function: Function) -> Self {
         VM {
             value_stack: Vec::with_capacity(256),
-            frames: vec![CallFrame {
+            call_stack: vec![CallFrame {
                 function: main_function,
                 instruction_pointer: 0,
                 slot_start: 0,
@@ -31,19 +37,28 @@ impl VM {
         }
     }
 
-    pub fn interpret(&mut self) -> Value {
+    pub fn interpret(&mut self) -> VMResult<Value> {
         match self.interpret_() {
-            Ok(value) => value,
+            Ok(value) => Ok(value),
             Err(VMError::Msg(msg)) => {
-                println!("Program crashed with the following error:");
-                println!("{msg}");
+                use std::fmt::Write;
 
-                println!("Stack Trace:");
-                for (call_frame_index, call_frame) in self.frames.iter().enumerate().rev() {
-                    println!("[{call_frame_index}] {}()", call_frame.function.name)
+                let mut error_msg: String = String::new();
+                writeln!(error_msg, "Program crashed with the following error:").unwrap();
+                writeln!(error_msg, "{msg}").unwrap();
+
+                // Format a stack trace.
+                writeln!(error_msg, "Stack Trace:").unwrap();
+                for (call_frame_index, call_frame) in self.call_stack.iter().enumerate().rev() {
+                    writeln!(
+                        error_msg,
+                        "[{call_frame_index}] {}()",
+                        call_frame.function.name
+                    )
+                    .unwrap();
                 }
 
-                panic!()
+                Err(VMError::Msg(error_msg))
             }
         }
     }
@@ -53,35 +68,35 @@ impl VM {
         loop {
             // Fetch the current instruction
             let Some(raw_instruction): Option<u8> = self
-                .frames
+                .call_stack
                 .last()
                 .unwrap()
                 .function
                 .chunk
                 .get_instruction(self.get_instruction_pointer())
             else {
-                panic!("VM Error: No more instructions to execute ")
+                return Err(VMError::Msg(
+                    "VM Error: No more instructions to execute ".to_string(),
+                ));
             };
 
             // Decode the instruction
             let Some(op_code) = OpCode::from_u8(raw_instruction) else {
-                panic!("VM Error: Invalid instruction '{raw_instruction}'.")
+                return Err(VMError::Msg(
+                    "VM Error: Invalid instruction '{raw_instruction}'.".to_string(),
+                ));
             };
 
-            // TODO Remove
-            // println!("{}", "-".repeat(30));
-            // println!(
-            //     "(IP = {}) Interpreting {op_code:?}\nVM: {self:#?}",
-            //     self.get_instruction_pointer()
-            // );
-            // println!("{}", "-".repeat(30));
             // Execute the instruction
             match op_code {
                 OpCode::Return => {
-                    if self.frames.len() == 1 {
+                    if self.call_stack.len() == 1 {
                         return Ok(self.pop_value());
                     } else {
-                        self.frames.pop();
+                        self.call_stack.pop();
+                        let previous_frame_instruction_pointer: usize =
+                            self.call_stack.last().unwrap().instruction_pointer;
+                        self.set_instruction_pointer(previous_frame_instruction_pointer)
                         // TODO Might have to increment instruction pointer
                     }
                 }
@@ -115,7 +130,7 @@ impl VM {
             }
 
             match op_code {
-                OpCode::Jump | OpCode::JumpIfTrue | OpCode::JumpIfFalse => (),
+                OpCode::Jump | OpCode::JumpIfTrue | OpCode::JumpIfFalse | OpCode::Call => (),
                 _ => self.increment_instruction_pointer(1 + op_code.arity()),
             }
         }
@@ -293,16 +308,16 @@ impl VM {
     }
 
     fn get_local_op(&mut self) -> VMResult<()> {
-        let slot_start: usize = self.frames.last().unwrap().slot_start;
+        let slot_start: usize = self.call_stack.last().unwrap().slot_start;
         let local_index: usize = slot_start
             + self
                 .get_chunk()
                 .get_instruction(self.get_instruction_pointer() + 1)
                 .unwrap() as usize;
         if local_index > self.value_stack.len() - 1 {
-            return Err(VMError::Msg(
-                "VM Error: Attempted getting a local({local_index}) that doesn't exist".to_string(),
-            ));
+            return Err(VMError::Msg(format!(
+                "VM Error: Attempted getting a local({local_index}) that doesn't exist"
+            )));
         }
         self.value_stack.push(self.value_stack[local_index].clone());
 
@@ -310,7 +325,7 @@ impl VM {
     }
 
     fn set_local_op(&mut self) -> VMResult<()> {
-        let slot_start: usize = self.frames.last().unwrap().slot_start;
+        let slot_start: usize = self.call_stack.last().unwrap().slot_start;
         let local_index: usize = slot_start
             + self
                 .get_chunk()
@@ -384,33 +399,37 @@ impl VM {
                 "VM Error: Only functions are callable.".to_string(),
             ));
         };
-        let slot_start: usize = self.value_stack.len();
+
+        // Subtract the functions arity from the value_stack length to know where it's
+        // parameters start from.
+        let slot_start: usize = self.value_stack.len() - (function.arity as usize);
         let call_frame: CallFrame = CallFrame {
             function: *function.clone(),
             instruction_pointer: 0,
             slot_start,
         };
 
-        self.frames.push(call_frame);
+        self.set_instruction_pointer(call_frame.instruction_pointer);
+        self.call_stack.push(call_frame);
         Ok(())
     }
 
     // Utility Methods
 
     fn get_instruction_pointer(&self) -> usize {
-        self.frames.last().unwrap().instruction_pointer.clone()
+        self.call_stack.last().unwrap().instruction_pointer.clone()
     }
 
     fn set_instruction_pointer(&mut self, new_instruction_pointer: usize) {
-        self.frames.last_mut().unwrap().instruction_pointer = new_instruction_pointer;
+        self.call_stack.last_mut().unwrap().instruction_pointer = new_instruction_pointer;
     }
 
     fn increment_instruction_pointer(&mut self, increment: usize) {
-        self.frames.last_mut().unwrap().instruction_pointer += increment;
+        self.call_stack.last_mut().unwrap().instruction_pointer += increment;
     }
 
     fn get_chunk(&self) -> &Chunk {
-        &self.frames.last().unwrap().function.chunk
+        &self.call_stack.last().unwrap().function.chunk
     }
 
     fn pop_value(&mut self) -> Value {
@@ -429,18 +448,27 @@ impl VM {
     }
 }
 
+#[derive(Debug)]
 pub enum VMError {
     Msg(String),
 }
 
-type VMResult<T> = Result<T, VMError>;
+impl std::fmt::Display for VMError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VMError::Msg(error_message) => write!(f, "{error_message}"),
+        }
+    }
+}
+
+pub type VMResult<T> = Result<T, VMError>;
 
 #[cfg(test)]
 mod tests {
     use crate::vm::{chunk::Function, CallFrame};
 
     use super::{
-        chunk::{self, Chunk, OpCode, Value},
+        chunk::{Chunk, OpCode, Value},
         VM,
     };
 
@@ -594,7 +622,7 @@ mod tests {
         chunky.write_opcode(OpCode::Return);
 
         let mut vm = wrap_chunk(chunky);
-        let result: Value = vm.interpret();
+        let result: Value = vm.interpret().unwrap();
         assert_eq!(result, Value::Int(2))
     }
 
@@ -619,7 +647,7 @@ mod tests {
         chunky.write_opcode(OpCode::Return);
 
         let mut vm = wrap_chunk(chunky);
-        let _result: Value = vm.interpret();
+        let _result: Value = vm.interpret().unwrap();
         println!("VM {vm:?}");
         assert_eq!(vm.value_stack[two_index], Value::Int(3));
     }
@@ -637,7 +665,7 @@ mod tests {
         chunky.write_opcode(OpCode::Return);
 
         let mut vm = wrap_chunk(chunky);
-        let result: Value = vm.interpret();
+        let result: Value = vm.interpret().unwrap();
         assert_eq!(result, expected);
     }
 
@@ -656,7 +684,7 @@ mod tests {
         chunky.write_opcode(OpCode::Return);
 
         let mut vm = wrap_chunk(chunky);
-        let result: Value = vm.interpret();
+        let result: Value = vm.interpret().unwrap();
         assert_eq!(result, expected)
     }
 

@@ -74,7 +74,7 @@ impl std::fmt::Display for Chunk {
 
             let argument = match op_code.arity() {
                 0 => "".to_string(),
-                1 => format!("{}", self.instructions[instruction_pointer + 1]),
+                1 => format!("{:02}", self.instructions[instruction_pointer + 1]),
                 4 => {
                     let address_bytes: [u8; 4] = self.instructions
                         [instruction_pointer + 1..instruction_pointer + 5]
@@ -250,15 +250,18 @@ impl std::fmt::Display for Value {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Function {
     pub name: String,
+    pub arguments: Vec<String>,
     pub arity: u8,
     pub chunk: Chunk,
     pub is_script: bool,
 }
 
 impl Function {
-    pub fn new(name: String, arity: u8) -> Function {
+    pub fn new(name: String, arguments: Vec<String>) -> Function {
+        let arity: u8 = arguments.len() as u8;
         Function {
             name,
+            arguments,
             arity,
             chunk: Chunk::new(),
             is_script: false,
@@ -268,6 +271,7 @@ impl Function {
     pub fn new_main() -> Function {
         Function {
             name: "~~main~~".to_string(),
+            arguments: Vec::new(),
             arity: 0,
             chunk: Chunk::new(),
             is_script: true,
