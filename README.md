@@ -1,6 +1,6 @@
 # pico-rinha
 
-two smol interpreters for the [Rinha]() programming language.
+two smol interpreters for the [Rinha](https://github.com/aripiprazole/rinha-de-compiler/) programming language.
 
 ## structure of the repo
 
